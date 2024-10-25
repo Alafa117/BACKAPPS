@@ -1,59 +1,47 @@
-import User from '../models/User.js';
+// src/controllers/auth.controller.js
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
 
-const signup = async (req, res) => {
+// Controlador para registrar un nuevo usuario
+export const registerUser = async (req, res) => {
+    const { username, email, password } = req.body;
     try {
-        const { nombre, fechaNacimiento, ciudad, cedula, telefono, password } = req.body;
+        // Verificar si el usuario ya existe
+        const existingUser = await User.findOne({ email });
+        if (existingUser) return res.status(400).json({ message: "El usuario ya existe" });
 
-        const userExists = await User.findOne({ cedula });
-        if (userExists) {
-            return res.status(400).json({ message: 'Usuario ya existe' });
-        }
+        // Hashear la contraseña
+        const hashedPassword = await bcrypt.hash(password, 12);
 
-        const user = await User.create({
-            nombre,
-            fechaNacimiento,
-            ciudad,
-            cedula,
-            telefono,
-            password
-        });
+        // Crear un nuevo usuario y guardarlo
+        const newUser = new User({ username, email, password: hashedPassword });
+        await newUser.save();
 
-        if (user) {
-            res.status(201).json({
-                _id: user._id,
-                nombre: user.nombre,
-                token: generateToken(user._id)
-            });
-        }
+        res.status(201).json({ message: "Usuario registrado con éxito" });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(500).json({ message: "Error al registrar el usuario" });
     }
 };
 
-const login = async (req, res) => {
+// Controlador para iniciar sesión
+export const loginUser = async (req, res) => {
+    const { email, password } = req.body;
     try {
-        const { cedula, password } = req.body;
-        const user = await User.findOne({ cedula });
+        // Verificar si el usuario existe
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
 
-        if (user && (await user.matchPassword(password))) {
-            res.json({
-                _id: user._id,
-                nombre: user.nombre,
-                token: generateToken(user._id)
-            });
-        } else {
-            res.status(401).json({ message: 'Credenciales inválidas' });
-        }
+        // Comparar la contraseña ingresada con la almacenada
+        const isPasswordCorrect = await bcrypt.compare(password, user.password);
+        if (!isPasswordCorrect) return res.status(400).json({ message: "Credenciales incorrectas" });
+
+        // Crear un token JWT
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        res.status(200).json({ message: "Inicio de sesión exitoso", token });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        res.status(500).json({ message: "Error al iniciar sesión" });
     }
 };
 
-const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '30d'
-    });
-};
-
-export { signup, login };
